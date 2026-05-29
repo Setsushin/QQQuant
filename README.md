@@ -1,5 +1,8 @@
 # QQQuant
 
+**Live demo: https://setsushin.github.io/QQQuant/** — a static snapshot of the serving
+store (the Backtest-lab tab needs live compute and runs locally only).
+
 Leveraged-ETF strategy backtesting for a Japan-domiciled investor — a full-stack
 data product. A Python **data/quant plane** ingests market + macro data,
 reconstructs pre-inception leveraged-ETF history, backtests drawdown-tilt
@@ -82,7 +85,9 @@ docs/spec.md         full specification (source of truth)
 - **Product plane** P1–P2 ✅ — two-plane loop end to end (FastAPI → Hono → SPA →
   Tauri); 5 surfaces over real data (Signal · Comparison · Crisis · Distribution ·
   Backtest lab).
-- **P3** — public deploy + blog: pending.
+- **P3** — outward-facing deploy ✅ — static demo live at
+  [setsushin.github.io/QQQuant](https://setsushin.github.io/QQQuant/) (GitHub Pages,
+  auto-deploys on push to `main`); blog still pending.
 
 ## Caveats
 
