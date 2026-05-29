@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Raw landed data (DuckDB tables built from the Parquet lake by ingestion, or by dbt seeds in CI).
+    schema: raw
+    tables:
+      - name: equity_prices
+        description: yfinance daily OHLCV with raw values + adjustment factor, one row per (symbol, date, vintage).
+      - name: equity_xsource
+        description: Stooq close prices, independent source for the cross-source quality check.
+      - name: macro
+        description: FRED macro series (rates, FX, CPI).

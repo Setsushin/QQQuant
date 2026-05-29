@@ -1,0 +1,18 @@
+version: 2
+
+models:
+  - name: stg_equity_prices
+    description: Latest-vintage daily equity prices with a derived fully-adjusted close.
+    columns:
+      - name: symbol
+        description: Canonical symbol (QQQ, TQQQ, ...).
+        tests:
+          - not_null
+      - name: price_date
+        description: Trading date.
+        tests:
+          - not_null
+      - name: adjusted_close
+        description: Split- and dividend-adjusted close (close * adj_factor).
+        tests:
+          - not_null

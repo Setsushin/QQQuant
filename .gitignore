@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data lake & local engine (point-in-time artifacts, never committed)
+data/
+*.duckdb
+*.duckdb.wal
+# Exception: the SPA's static demo snapshot is a committed export, not a data-lake artifact
+!product/web/public/data/
+
+# Dagster
+.dagster_home/
+tmp*/
+
+# dbt
+transform/target/
+transform/dbt_packages/
+transform/logs/
+transform/.user.yml
+
+# Product plane (TypeScript / Tauri) — keep bun.lock, ignore build/deps
+node_modules/
+product/**/dist/
+product/**/.vite/
+product/web/src-tauri/target/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

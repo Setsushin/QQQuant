@@ -1,0 +1,52 @@
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages publish needs an OIDC token (id-token) plus write access to Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel an in-flight publish (a half-published site is worse).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      # Lockfile lives at the workspace root (product/), so install from there.
+      - name: Install workspace dependencies
+        working-directory: product
+        run: bun install --frozen-lockfile
+
+      # VITE_STATIC switches the SPA to the committed JSON snapshot and a relative base;
+      # Vite copies public/data/*.json into dist.
+      - name: Build static demo
+        working-directory: product/web
+        env:
+          VITE_STATIC: "1"
+        run: bun run build
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: product/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

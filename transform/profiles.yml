@@ -1,0 +1,8 @@
+jp_quant:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('JP_QUANT_DUCKDB', '../data/jp_quant.duckdb') }}"
+      schema: main
+      threads: 4

@@ -1,0 +1,83 @@
+[
+  {
+    "strategy": "B0 QQQ-DCA",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"QQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "B2 TQQQ-DCA",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "TQQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"TQQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "B3 60/40-DCA",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 0.6,
+    "allocation": "{\"QQQ\": 0.6, \"IEF\": 0.4}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "D1 Drawdown-15-QLD",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"QQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "D2 Drawdown-25-TQQQ",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"QQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "D3 Tiered",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"QQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "D4 Tiered+200WMA",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"QQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "T1 200-SMA-Switch",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "TQQQ",
+    "target_weight": 1.0,
+    "allocation": "{\"TQQQ\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  },
+  {
+    "strategy": "T2 200-SMA-QLD",
+    "as_of": "2026-05-27T00:00:00",
+    "target_symbol": "QLD",
+    "target_weight": 1.0,
+    "allocation": "{\"QLD\": 1.0}",
+    "qqq_drawdown_52w": 0.0,
+    "qqq_above_200dma": true
+  }
+]

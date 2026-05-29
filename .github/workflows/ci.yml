@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      JP_QUANT_DUCKDB: ${{ github.workspace }}/data/jp_quant.duckdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest
+
+      - name: dbt build (seeded, offline)
+        run: |
+          mkdir -p data
+          uv run dbt seed --project-dir transform --profiles-dir transform
+          uv run dbt build --project-dir transform --profiles-dir transform
+
+      - name: Validate Dagster definitions
+        run: uv run dagster definitions validate

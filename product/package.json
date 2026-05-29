@@ -1,0 +1,6 @@
+{
+  "name": "jp-quant-product",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["bff", "web"]
+}
