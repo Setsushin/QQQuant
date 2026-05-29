@@ -322,9 +322,52 @@ th.sortable:hover {
 
 th[title],
 .stats li[title] {
+  position: relative;
   cursor: help;
   text-decoration: underline dotted var(--line);
   text-underline-offset: 3px;
+}
+
+/* The dotted underline + help cursor promise an explanation, but the native `title`
+   tooltip is too slow/flaky to deliver it. Render it from attr(title) so it appears
+   instantly; `title` stays on the element for accessibility. */
+th[title]::after,
+.stats li[title]::after {
+  content: attr(title);
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  z-index: 30;
+  width: max-content;
+  max-width: 15rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  background: var(--fg);
+  color: #fff;
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-align: left;
+  text-decoration: none;
+  white-space: normal;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+/* Titled headers are all right-aligned and the last one sits at the table's right
+   edge — anchor the bubble right so it can't spill past the viewport. */
+th[title]::after {
+  right: 0;
+}
+.stats li[title]::after {
+  left: 50%;
+  transform: translateX(-50%);
+}
+th[title]:hover::after,
+.stats li[title]:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 .strategy-row {
