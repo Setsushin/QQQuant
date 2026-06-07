@@ -1,132 +1,76 @@
-"""Strategy definitions (spec §4).
+"""Strategy catalog (spec §4) — named points in the composable factor matrix.
 
-Two capital pools act independently (§4 capital model):
-- **This month's contribution** — routed by ``target_allocation``.
-- **Existing holdings** — only touched by ``rebalance`` (conversions).
+Every strategy below is assembled from the orthogonal components in
+:mod:`jp_quant.backtest.composable` (a base allocation x leverage trigger x trend gate x
+exit rule), so the families are not bespoke classes but presets:
 
-Baselines (§4.1) never rebalance. Trend-following (§4.2) is a classic full-stack
-switch, so it rebalances *all* holdings to the signalled target. Drawdown tilt
-(§4.3) only redirects new contributions and converts leveraged lots back to QQQ on
-recovery (§4.4 default exit) — it never rebalances the base stack.
+- **Baselines (§4.1)** — :class:`FixedAllocation`, never sell.
+- **Trend-following (§4.2)** — ``sma_switch``: a full-stack switch into a leveraged sleeve
+  above the 200-day SMA, else cash.
+- **Drawdown tilt (§4.3-4.4)** — ``drawdown_tilt``: a contribution tilt keyed off QQQ's own
+  drawdown, with recovery / time / never exits and an optional 200-day trend gate.
+- **VIX tilt (§4.4a)** — ``vix_tilt``: the same contribution-tilt shape keyed off the VIX
+  fear gauge, optionally gated by a trend MA (independent of VIX) that can also force-exit.
+
+New combinations are just new factory calls; the data plane (report, walk-forward grid,
+serving API) enumerates over ``ALL_STRATEGIES`` and the validation grids.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from jp_quant.backtest.engine import AllocationContext, Convert
-from jp_quant.signals import TRADING_DAYS_200W, TRADING_DAYS_YEAR, drawdown_from_high, sma
-
-
-@dataclass(frozen=True)
-class FixedAllocation:
-    """Allocate every contribution to a fixed set of weights; never sell (§4.1)."""
-
-    name: str
-    weights: dict[str, float]
-
-    def target_allocation(self, ctx: AllocationContext) -> dict[str, float]:
-        return dict(self.weights)
-
-    def rebalance(self, ctx: AllocationContext) -> list[Convert]:
-        return []
-
-
-@dataclass(frozen=True)
-class SmaSwitch:
-    """200-day SMA trend switch (§4.2): full stack in ``leveraged`` when the signal is
-    above its SMA, else in ``cash``. Both the contribution and existing holdings follow."""
-
-    name: str
-    leveraged: str
-    cash: str = "SGOV"
-    signal_symbol: str = "QQQ"
-    sma_window: int = 200
-
-    def _target(self, ctx: AllocationContext) -> str:
-        s = ctx.history[self.signal_symbol]
-        above = float(s.iloc[-1]) > float(sma(s, self.sma_window).iloc[-1])
-        return self.leveraged if above else self.cash
-
-    def target_allocation(self, ctx: AllocationContext) -> dict[str, float]:
-        return {self._target(ctx): 1.0}
-
-    def rebalance(self, ctx: AllocationContext) -> list[Convert]:
-        target = self._target(ctx)
-        return [
-            Convert(sym, target)
-            for sym, pos in ctx.portfolio.positions.items()
-            if sym != target and pos.shares > 0
-        ]
-
-
-@dataclass(frozen=True)
-class DrawdownTilt:
-    """Drawdown-triggered leverage tilt (§4.3). Redirects this month's contribution to a
-    leveraged sleeve once QQQ's drawdown from its 52w high clears a tier; reverts leveraged
-    lots to ``base`` when QQQ recovers within ``recover_within`` of the high (§4.4)."""
-
-    name: str
-    base: str = "QQQ"
-    tiers: tuple[tuple[float, str], ...] = ((0.15, "QLD"), (0.25, "TQQQ"))
-    recover_within: float = 0.05
-    guard_200w: bool = False
-    signal_symbol: str = "QQQ"
-
-    def _drawdown(self, ctx: AllocationContext) -> float:
-        """Drawdown magnitude (>= 0) of the signal from its trailing 52w high."""
-        s = ctx.history[self.signal_symbol]
-        return -float(drawdown_from_high(s, TRADING_DAYS_YEAR).iloc[-1])
-
-    def _below_200w(self, ctx: AllocationContext) -> bool:
-        s = ctx.history[self.signal_symbol]
-        return float(s.iloc[-1]) < float(sma(s, TRADING_DAYS_200W).iloc[-1])
-
-    def target_allocation(self, ctx: AllocationContext) -> dict[str, float]:
-        if self.guard_200w and self._below_200w(ctx):
-            return {self.base: 1.0}
-        dd = self._drawdown(ctx)
-        chosen = self.base
-        for thresh, sym in self.tiers:  # tiers ordered shallow→deep; deepest wins
-            if dd >= thresh:
-                chosen = sym
-        return {chosen: 1.0}
-
-    def rebalance(self, ctx: AllocationContext) -> list[Convert]:
-        if self._drawdown(ctx) >= self.recover_within:
-            return []
-        return [
-            Convert(sym, self.base)
-            for sym, pos in ctx.portfolio.positions.items()
-            if sym != self.base and pos.shares > 0
-        ]
-
+from jp_quant.backtest.composable import (
+    FixedAllocation,
+    drawdown_tilt,
+    sma_switch,
+    vix_tilt,
+)
 
 # Baselines (§4.1) — B1 QQQ-LumpSum = B0 run with a lump_sum_contribution schedule.
 B0_QQQ_DCA = FixedAllocation("B0 QQQ-DCA", {"QQQ": 1.0})
 B2_TQQQ_DCA = FixedAllocation("B2 TQQQ-DCA", {"TQQQ": 1.0})
 B3_60_40_DCA = FixedAllocation("B3 60/40-DCA", {"QQQ": 0.6, "IEF": 0.4})
+B4_QLD_DCA = FixedAllocation("B4 QLD-DCA", {"QLD": 1.0})
 
 # Trend-following (§4.2)
-T1_SMA_TQQQ = SmaSwitch("T1 200-SMA-Switch", leveraged="TQQQ")
-T2_SMA_QLD = SmaSwitch("T2 200-SMA-QLD", leveraged="QLD")
+T1_SMA_TQQQ = sma_switch("T1 200-SMA-Switch", leveraged="TQQQ")
+T2_SMA_QLD = sma_switch("T2 200-SMA-QLD", leveraged="QLD")
+T3_SMA_QQQ = sma_switch("T3 200-SMA-QQQ", leveraged="QQQ")
 
 # Drawdown tilt (§4.3)
-D1_DD15_QLD = DrawdownTilt("D1 Drawdown-15-QLD", tiers=((0.15, "QLD"),))
-D2_DD25_TQQQ = DrawdownTilt("D2 Drawdown-25-TQQQ", tiers=((0.25, "TQQQ"),))
-D3_TIERED = DrawdownTilt("D3 Tiered", tiers=((0.15, "QLD"), (0.25, "TQQQ")))
-D4_TIERED_GUARD = DrawdownTilt(
-    "D4 Tiered+200WMA", tiers=((0.15, "QLD"), (0.25, "TQQQ")), guard_200w=True
+_DD_TIERS = ((0.15, "QLD"), (0.25, "TQQQ"))
+D1_DD15_QLD = drawdown_tilt("D1 Drawdown-15-QLD", tiers=((0.15, "QLD"),))
+D2_DD25_TQQQ = drawdown_tilt("D2 Drawdown-25-TQQQ", tiers=((0.25, "TQQQ"),))
+D3_TIERED = drawdown_tilt("D3 Tiered", tiers=_DD_TIERS)
+D4_TIERED_GUARD = drawdown_tilt("D4 Tiered+200SMA", tiers=_DD_TIERS, trend_guard=True)
+# Exit-logic variants on the tiered tilt (§4.4): time-based exit vs. never-sell.
+D5_TIERED_TIME = drawdown_tilt("D5 Tiered+TimeExit12", tiers=_DD_TIERS, exit="time", hold_months=12)
+D6_TIERED_HOLD = drawdown_tilt("D6 Tiered+NeverSell", tiers=_DD_TIERS, exit="never")
+
+# VIX-triggered leverage tilt (§4.4a): three-tier ladder QQQ → QLD (VIX≥25) → TQQQ (VIX≥35).
+_VIX_TIERS = ((25.0, "QLD"), (35.0, "TQQQ"))
+V1_VIX_TILT = vix_tilt("V1 VIX-Tilt", tiers=_VIX_TIERS)
+# V2: same ladder, gated by the 200-day MA so it won't lever below trend (blocks new tilts only).
+V2_VIX_GUARD = vix_tilt("V2 VIX-Tilt+200SMA", tiers=_VIX_TIERS, trend_guard=True)
+# V3: like V2 but also actively de-risks to plain QQQ when QQQ breaks below the 200-day MA.
+V3_VIX_UPTREND = vix_tilt(
+    "V3 VIX-Tilt+200SMA+DeRisk", tiers=_VIX_TIERS, trend_guard=True, exit_below_guard=True
 )
 
 ALL_STRATEGIES = [
     B0_QQQ_DCA,
     B2_TQQQ_DCA,
     B3_60_40_DCA,
+    B4_QLD_DCA,
     T1_SMA_TQQQ,
     T2_SMA_QLD,
+    T3_SMA_QQQ,
     D1_DD15_QLD,
     D2_DD25_TQQQ,
     D3_TIERED,
     D4_TIERED_GUARD,
+    D5_TIERED_TIME,
+    D6_TIERED_HOLD,
+    V1_VIX_TILT,
+    V2_VIX_GUARD,
+    V3_VIX_UPTREND,
 ]

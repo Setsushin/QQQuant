@@ -9,7 +9,6 @@ from __future__ import annotations
 import pandas as pd
 
 TRADING_DAYS_YEAR = 252  # ~52 weeks
-TRADING_DAYS_200W = 1000  # 200 weeks * 5 trading days
 
 
 def trailing_high(prices: pd.Series, window: int) -> pd.Series:

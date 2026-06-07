@@ -48,9 +48,10 @@ def build_report(
     return pd.DataFrame(rows).set_index("name")
 
 
-# The tradable universe (§8 F2). VIX and other auxiliary series are dropped so a
-# late-inception extra never shortens the common panel via the final dropna.
+# The tradable universe (§8 F2). VIX and other auxiliary series are *not* tradable, so they
+# don't drive the common-panel dropna; signal-only series are reattached afterwards.
 UNIVERSE = ("QQQ", "QLD", "TQQQ", "SGOV", "IEF")
+SIGNAL_SERIES = ("VIX",)  # non-tradable columns kept for strategy signals (e.g. vix_tilt, §4.4a)
 
 
 def reconstruct_universe(panel: pd.DataFrame, borrow_annual_pct: pd.Series) -> pd.DataFrame:
@@ -75,7 +76,13 @@ def reconstruct_universe(panel: pd.DataFrame, borrow_annual_pct: pd.Series) -> p
     out["SGOV"] = compound_to_price(cash_ret.fillna(0.0))
 
     cols = [c for c in UNIVERSE if c in out.columns]
-    return out[cols].dropna()
+    tradable = out[cols].dropna()
+    # Reattach signal-only series (VIX) aligned to the tradable span, ffilled over any gaps —
+    # they inform strategies but are never allocated to, so they must not truncate the panel.
+    for sig in SIGNAL_SERIES:
+        if sig in out.columns:
+            tradable[sig] = out[sig].reindex(tradable.index).ffill().bfill()
+    return tradable
 
 
 def load_price_panel(duckdb_path: str) -> pd.DataFrame:
@@ -86,7 +93,12 @@ def load_price_panel(duckdb_path: str) -> pd.DataFrame:
         eq = con.execute(
             "select price_date, symbol, adjusted_close from main.stg_equity_prices"
         ).df()
-        macro = con.execute("select date, value from raw.macro where series_id = 'DTB3'").df()
+        # Keep only the latest vintage per date — raw.* is append-only, so re-ingesting
+        # stamps a new vintage that would otherwise duplicate every macro date (spec §5.3).
+        macro = con.execute(
+            "select date, value from raw.macro where series_id = 'DTB3' "
+            "qualify row_number() over (partition by cast(date as date) order by vintage desc) = 1"
+        ).df()
     finally:
         con.close()
     panel = eq.pivot(index="price_date", columns="symbol", values="adjusted_close").sort_index()

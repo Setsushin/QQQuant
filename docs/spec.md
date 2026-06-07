@@ -89,6 +89,7 @@ All strategies operate on a monthly cadence (matches the author's actual DCA rhy
 | `B1` | QQQ-LumpSum | Invest entire 30y budget on day 0. Theoretical upper bound for "time in market." |
 | `B2` | TQQQ-DCA | Same as B0 but TQQQ. Establishes the naive "buy leverage" baseline. |
 | `B3` | 60/40-DCA | 60% QQQ / 40% IEF (7-10y treasury). Risk-balanced reference. |
+| `B4` | QLD-DCA | Same as B0 but QLD (2x). A middle leverage baseline between B0 and B2. |
 
 ### 4.2 Trend-following (literature replication)
 
@@ -96,6 +97,7 @@ All strategies operate on a monthly cadence (matches the author's actual DCA rhy
 |----|------|-------------|
 | `T1` | 200-SMA-Switch | Hold TQQQ when QQQ > 200d SMA, else SGOV (cash). Monthly check. |
 | `T2` | 200-SMA-QLD | Same as T1 but use QLD (2x) instead of TQQQ. |
+| `T3` | 200-SMA-QQQ | Same as T1 but hold unleveraged QQQ above the SMA, else SGOV (cash). |
 
 ### 4.3 Drawdown-triggered leverage tilt (the project's main contribution)
 
@@ -106,19 +108,31 @@ Action column = **where this month's contribution goes** (not a rebalance of exi
 | `D1` | Drawdown-15-QLD | QQQ down ≥15% from 52w high | → QLD instead of QQQ |
 | `D2` | Drawdown-25-TQQQ | QQQ down ≥25% from 52w high | → TQQQ instead of QQQ |
 | `D3` | Tiered | 15%↓ → QLD; 25%↓ → TQQQ | Combination of D1 + D2 |
-| `D4` | Tiered + 200WMA guard | D3 logic, but disable leverage if QQQ < 200-week SMA | Adds long-trend safety rail |
+| `D4` | Tiered + 200SMA guard | D3 logic, but disable leverage if QQQ < 200-day SMA | Adds a trend safety rail |
 
 ### 4.4 Exit logic for drawdown strategies
 
-- **Default**: Sell leveraged holdings (QLD/TQQQ → QQQ) when QQQ recovers to within 5% of prior 52w high
-- **Alternative to test**: Time-based exit (hold for N months then convert)
-- **Alternative to test**: Never sell (just stop adding); let the leveraged position run
+- **Default** (`D1`–`D4`): Sell leveraged holdings (QLD/TQQQ → QQQ) when QQQ recovers to within 5% of prior 52w high
+- **`D5` Time-based exit**: hold each leveraged lot for N months (default 12) then convert back to QQQ, regardless of price
+- **`D6` Never-sell**: stop adding leverage once QQQ recovers, but let the existing leveraged position run (zero exit turnover)
 
-Each variant must be testable independently because tax friction interacts strongly with sell frequency.
+Each variant is testable independently because tax friction interacts strongly with sell frequency: `D5`/`D6` are the same tilt as `D3` with only the exit rule changed.
+
+### 4.4a VIX-triggered leverage tilt
+
+| ID | Name | Trigger | Trend gate | Action (this month's contribution) |
+|----|------|---------|-----------|------------------------------------|
+| `V1` | VIX-Tilt | VIX level | none | calm → QQQ; VIX ≥ 25 → QLD (2×); VIX ≥ 35 → TQQQ (3×). Highest cleared tier wins. |
+| `V2` | VIX-Tilt+200SMA | VIX level | QQQ ≥ 200-day MA | Same ladder as V1, but new leverage is **blocked** below the 200-day MA. Existing lots held until VIX calms. |
+| `V3` | VIX-Tilt+200SMA+DeRisk | VIX level | QQQ ≥ 200-day MA | Like V2, but **also unwinds existing leverage to QQQ** when QQQ breaks below the 200-day MA (active de-risk). |
+
+Exit: convert leveraged lots back to QQQ once VIX falls below the entry tier (25); `V3` also unwinds on a trend breach. A *contribution* tilt like the drawdown family (§4.3) but keyed off the VIX level — testing whether fear spikes mark better leverage entries, and (V2/V3) whether an **independent** trend gate (the 200-day price MA, distinct from the VIX volatility signal) improves the after-tax/risk outcome. VIX is carried as a **signal-only** series (`SIGNAL_SERIES` in `reconstruct_universe`): it informs strategies but is never tradable, and a VIX-less panel falls back to QQQ. The single trend gate is the 200-day SMA (the 200-week option was dropped).
 
 ### 4.5 Parameter sweep space
 
 For each strategy family, define an explicit parameter grid. Walk-forward validation (train 2005–2014, test 2015–2024, then expand) prevents in-sample over-fitting **of continuous parameters**. It does **not** rescue the structural problem that the *number of trigger events* is small (§9.5) — report the full grid, not just the best cell.
+
+**Factor matrix.** Strategies are points in a product of orthogonal axes — base allocation × leverage trigger (drawdown / VIX / trend) × leverage ladder × trend gate (none / 200-day) × exit rule × scope. Each axis and the rules that make a combination meaningless live in `backtest.factor_matrix` (`invalid_reason` / `required_series`), so a UI can grey out invalid cells (e.g. a fixed allocation has no trigger or exit; a VIX trigger needs the VIX series) rather than relying on hand-enumerated named strategies, which inevitably miss combinations.
 
 ---
 
@@ -177,9 +191,10 @@ This is one of the project's two differentiating features (the other is leverage
 
 - **Cost-basis method: 総平均法に準ずる方法 (weighted-average), NOT FIFO.** Japan's 特定口座 computes the acquisition cost of listed shares/ETFs as a per-unit weighted average over purchases of the same security: `(A + B) / (C + D)` where A/C are the prior-average value/units and B/D are subsequent purchases (1円未満 rounded up). FIFO is *not* used for Japanese listed-security capital gains. (Verified against 国税庁 No.1466 / No.1464 — see Sources.) Bonus: weighted-average state is easier to vectorize than per-lot FIFO matching, helping §8 NF4.
 - Realized gain/loss recognition on each sell event, using the weighted-average cost basis at the time of sale
-- Tax withholding at sale (20.315%) for 特定口座
-- Annual loss carry-forward (3 years) — stretch goal
-- Output: side-by-side pre-tax vs. after-tax returns for every strategy
+- Tax withholding at sale (20.315%) for 特定口座, in real time: a frequent switcher pays tax on each conversion and forgoes the compounding that tax would have earned
+- Within-year loss netting (損益通算): a later loss refunds tax over-withheld on earlier same-year gains
+- Annual loss carry-forward (3 years, 繰越控除): a year's *net* loss offsets gains in the next three years; strategies that never sell (or never realize a loss) never generate a carry-forward
+- Output: side-by-side pre-tax vs. after-tax returns for every strategy (`TaxLedger`, §6, models all of the above)
 
 ### 6.3 Currency treatment
 
@@ -235,7 +250,7 @@ This section is intentionally **tool-agnostic**. The build-vs-buy decision (§12
 - **F2**: Support multi-asset universe (QQQ, QLD, TQQQ, SGOV, IEF minimum)
 - **F3**: Support cash flows in (monthly contribution) and out (none for v1)
 - **F4**: Position tracking with weighted-average cost basis (required by tax engine, §6.2)
-- **F5**: Transaction cost model: commission = 0 (modern brokers); spread = 0 for liquid ETFs; **tax** is the dominant friction
+- **F5**: Transaction cost model: commission = 0.1% of notional per trade (charged on contribution buys and both legs of a conversion); spread = 0 for liquid ETFs; **tax** remains the dominant friction. Buy commission is capitalised into the acquisition cost (取得費), sell commission is deductible from the gain (譲渡費用).
 - **F6**: Dividend handling: reinvest at next monthly close
 - **F7**: Output: full equity curve, trade log, per-strategy metric summary
 - **F8**: Deterministic given seed, date range, **and pinned data vintage (§5.3)** (reproducibility)
