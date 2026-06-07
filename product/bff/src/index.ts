@@ -24,6 +24,7 @@ export const app = new Hono();
 
 app.use("/*", cors());
 app.get("/health", (c) => c.json({ status: "ok" }));
+app.get("/api/factors", () => proxy("/factors"));
 app.get("/api/signals", () => proxy("/signals"));
 app.get("/api/metrics", () => proxy("/metrics"));
 app.get("/api/walk-forward", () => proxy("/walk-forward"));

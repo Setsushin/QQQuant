@@ -5,6 +5,7 @@ import type {
   CrisisRow,
   CurrentSignal,
   EquityRow,
+  FactorsResponse,
   StrategyMetric,
 } from "./types";
 
@@ -54,6 +55,8 @@ export const getEquity = (strategy: string): Promise<EquityRow[]> => {
     return rows;
   });
 };
+
+export const getFactors = (): Promise<FactorsResponse> => getJson("/api/factors");
 
 export async function runBacktest(req: BacktestRequest): Promise<BacktestResult> {
   if (STATIC) throw new Error("Backtest lab runs locally only (no compute in the static demo).");

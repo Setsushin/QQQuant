@@ -57,17 +57,17 @@ const COPY: Record<Lang, Copy> = {
   en: {
     title: "Strategy comparison",
     intro:
-      "Every strategy receives the same monthly contribution schedule. After-tax figures assume a Japan 特定口座 terminal liquidation at 20.315%. Click a row to see its equity curve against the baseline.",
+      "Every strategy receives the same monthly contribution schedule. After-tax figures apply Japan 特定口座 tax (20.315%) to realized gains as they occur — every switch is taxed, with intra-year loss netting and a 3-year carry-forward — plus a terminal liquidation. Click a row to see its equity curve against the baseline.",
     showAdvanced: "Show advanced metrics",
     strategy: "Strategy",
     taxImpactTitle: "Pre- vs after-tax CAGR",
     taxImpactNote:
-      "The gap is the 特定口座 tax (20.315%) on a single terminal liquidation — wider simply where there's more gain to tax (intra-period switches aren't taxed in this model). The leverage premium has to clear it before it shows up as wealth.",
+      "The gap is the 特定口座 tax (20.315%) on realized gains: every switch is taxed when it happens (with intra-year netting and a 3-year loss carry-forward), plus a terminal liquidation — so a strategy that churns pays tax earlier and forfeits the compounding on it. The leverage premium has to clear it before it shows up as wealth.",
     columns: {
       cagr: { label: "CAGR", tip: "Compound annual growth rate, pre-tax (time-weighted)." },
       cagr_after_tax: {
         label: "After-tax CAGR",
-        tip: "CAGR net of Japan 特定口座 tax on terminal liquidation (20.315%).",
+        tip: "CAGR net of Japan 特定口座 tax (20.315%) on realized gains as they occur, plus a terminal liquidation.",
       },
       ann_vol: { label: "Volatility", tip: "Annualized standard deviation of monthly returns." },
       max_drawdown: {
@@ -82,7 +82,7 @@ const COPY: Record<Lang, Copy> = {
       calmar: { label: "Calmar", tip: "CAGR divided by max drawdown." },
       tax_drag: {
         label: "Tax drag",
-        tip: "CAGR lost to the 特定口座 tax on a single terminal liquidation (20.315%).",
+        tip: "CAGR lost to the 特定口座 tax (20.315%) on realized gains over time plus a terminal liquidation.",
       },
       taxable_events_per_year: {
         label: "Taxable events / yr",
@@ -97,24 +97,24 @@ const COPY: Record<Lang, Copy> = {
   zh: {
     title: "策略对比",
     intro:
-      "每个策略都接受相同的月度供款计划。税后数字假设以日本特定口座在 20.315% 清算。点击某行可查看其相对基准的净值曲线。",
+      "每个策略都接受相同的月度供款计划。税后数字按日本特定口座（20.315%）对已实现收益随发生即课税——每次换仓都计税，含年内损益通算与 3 年亏损繰越控除——并叠加期末清算。点击某行可查看其相对基准的净值曲线。",
     showAdvanced: "显示进阶指标",
     strategy: "策略",
     taxImpactTitle: "税前 vs 税后 CAGR",
     taxImpactNote:
-      "这道差距是按期末一次性清算计的特定口座税（20.315%）——收益越多、差距越大（本模型不对中途换仓计税）。杠杆溢价必须先盖过它，才会体现为财富。",
+      "这道差距是特定口座税（20.315%）对已实现收益的课税：每次换仓发生时即计税（含年内损益通算与 3 年亏损繰越），再加期末清算——所以频繁换仓的策略更早缴税、损失这笔税本可赚到的复利。杠杆溢价必须先盖过它，才会体现为财富。",
     columns: {
       cagr: { label: "CAGR", tip: "复合年增长率（税前，时间加权）。" },
       cagr_after_tax: {
         label: "税后 CAGR",
-        tip: "扣除日本特定口座清算税（20.315%）后的 CAGR。",
+        tip: "扣除日本特定口座税（20.315%；已实现收益随发生课税 + 期末清算）后的 CAGR。",
       },
       ann_vol: { label: "波动率", tip: "月度收益的年化标准差。" },
       max_drawdown: { label: "最大回撤", tip: "整个回测期内最严重的峰谷净值损失。" },
       sharpe: { label: "Sharpe", tip: "每单位总波动率的超额收益（年化）。" },
       sortino: { label: "Sortino", tip: "每单位下行波动率的超额收益（年化）。" },
       calmar: { label: "Calmar", tip: "CAGR 除以最大回撤。" },
-      tax_drag: { label: "税收拖累", tip: "因期末一次性清算缴特定口座税（20.315%）而损失的 CAGR。" },
+      tax_drag: { label: "税收拖累", tip: "因特定口座税（20.315%；已实现收益随时间课税 + 期末清算）而损失的 CAGR。" },
       taxable_events_per_year: {
         label: "应税事件 / 年",
         tip: "每年已实现收益事件的平均数。",
