@@ -4,6 +4,7 @@ import { type Lang, LangProvider, useLang } from "./i18n";
 import { BacktestLab } from "./views/BacktestLab";
 import { CrisisStudies } from "./views/CrisisStudies";
 import { Distribution } from "./views/Distribution";
+import { FactorMatrix } from "./views/FactorMatrix";
 import { Findings } from "./views/Findings";
 import { SignalPanel } from "./views/SignalPanel";
 import { StrategyComparison } from "./views/StrategyComparison";
@@ -15,6 +16,7 @@ const TABS = [
   { id: "compare", view: <StrategyComparison /> },
   { id: "crisis", view: <CrisisStudies /> },
   { id: "distribution", view: <Distribution /> },
+  { id: "matrix", view: <FactorMatrix /> },
   { id: "lab", view: <BacktestLab /> },
   { id: "findings", view: <Findings /> },
   { id: "signal", view: <SignalPanel /> },
@@ -25,7 +27,8 @@ type TabId = (typeof TABS)[number]["id"];
 // Backtest lab needs live Python compute, which the static GitHub Pages demo can't serve —
 // hide that tab there. Default `active` ("compare") survives the filter in both builds.
 const STATIC = import.meta.env.VITE_STATIC === "1";
-const VISIBLE_TABS = STATIC ? TABS.filter((tab) => tab.id !== "lab") : TABS;
+const LIVE_ONLY: ReadonlySet<TabId> = new Set(["lab", "matrix"]);
+const VISIBLE_TABS = STATIC ? TABS.filter((tab) => !LIVE_ONLY.has(tab.id)) : TABS;
 
 interface Copy {
   tagline: string;
@@ -45,6 +48,7 @@ const COPY: Record<Lang, Copy> = {
       compare: "Comparison",
       crisis: "Crisis",
       distribution: "Distribution",
+      matrix: "Factor matrix",
       lab: "Backtest lab",
     },
     retry: "Retry",
@@ -59,6 +63,7 @@ const COPY: Record<Lang, Copy> = {
       compare: "对比",
       crisis: "危机",
       distribution: "分布",
+      matrix: "因素矩阵",
       lab: "回测台",
     },
     retry: "重试",

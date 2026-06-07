@@ -13,34 +13,34 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from jp_quant.backtest.composable import drawdown_tilt, sma_switch
 from jp_quant.backtest.engine import month_end_trade_dates, monthly_contributions
 from jp_quant.backtest.report import MONTHLY_CONTRIBUTION_JPY, build_report
-from jp_quant.backtest.strategies import DrawdownTilt, SmaSwitch
 from jp_quant.tax import Account
 
 
 def trend_grid() -> list[object]:
-    """SmaSwitch family: leverage sleeve x SMA window (§4.2, §4.5)."""
+    """SMA-switch family: leverage sleeve x SMA window (§4.2, §4.5)."""
     return [
-        SmaSwitch(f"T:SMA{window}-{lev}", leveraged=lev, sma_window=window)
+        sma_switch(f"T:SMA{window}-{lev}", leveraged=lev, sma_window=window)
         for lev in ("QLD", "TQQQ")
         for window in (150, 200, 250)
     ]
 
 
 def drawdown_grid() -> list[object]:
-    """DrawdownTilt family: tier set x recovery-exit band x 200WMA guard (§4.3-4.5)."""
+    """Drawdown-tilt family: tier set x recovery-exit band x 200-day trend guard (§4.3-4.5)."""
     tier_sets = {
         "15QLD": ((0.15, "QLD"),),
         "25TQQQ": ((0.25, "TQQQ"),),
         "tiered": ((0.15, "QLD"), (0.25, "TQQQ")),
     }
     return [
-        DrawdownTilt(
+        drawdown_tilt(
             f"D:{label}-r{int(rec * 100)}{'-g' if guard else ''}",
             tiers=tiers,
             recover_within=rec,
-            guard_200w=guard,
+            trend_guard=guard,
         )
         for label, tiers in tier_sets.items()
         for rec in (0.0, 0.05, 0.10)

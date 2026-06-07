@@ -5,7 +5,7 @@ import { equityToLine, num, pct } from "../format";
 import { type Lang, useLang } from "../i18n";
 import type { BacktestRequest, BacktestResult } from "../types";
 
-type Kind = BacktestRequest["kind"];
+type Kind = NonNullable<BacktestRequest["kind"]>;
 
 const TIER_PRESETS: Record<string, [number, string][]> = {
   "15→QLD": [[0.15, "QLD"]],
@@ -43,7 +43,8 @@ const COPY: Record<Lang, {
 }> = {
   en: {
     title: "Backtest lab",
-    intro: "Tweak a strategy's parameters and re-run it against the historical price panel.",
+    intro:
+      "Tune one strategy family's continuous parameters (SMA window, recovery band, custom tiers) and re-run against the historical panel. To explore the full discrete factor space — VIX triggers, exit rules, trend gates — use the Factor matrix tab.",
     familyLabel: "Strategy family",
     family: {
       drawdown_tilt: "Drawdown tilt",
@@ -64,8 +65,8 @@ const COPY: Record<Lang, {
     cushionLabel: "Exit cushion (frac.)",
     cushionTip:
       "Recovery cushion: exit the tilt once drawdown is within this many percent of the high.",
-    guardLabel: "200-week MA guard",
-    guardTip: "Only tilt while QQQ is above its 200-week moving average.",
+    guardLabel: "200-day MA guard",
+    guardTip: "Only tilt while QQQ is above its 200-day moving average.",
     allocLabel: "Allocation",
     allocLabels: { "QQQ 100%": "100% QQQ", "60/40": "60% QQQ / 40% IEF" },
     runIdle: "Run backtest",
@@ -79,7 +80,7 @@ const COPY: Record<Lang, {
     },
     tips: {
       cagr: "Compound annual growth rate, pre-tax.",
-      afterTax: "CAGR after Japan 特定口座 tax on terminal liquidation.",
+      afterTax: "CAGR after Japan 特定口座 tax (20.315%) on realized gains as they occur, plus terminal liquidation.",
       vol: "Annualized standard deviation of monthly returns.",
       maxDrawdown: "Worst peak-to-trough equity loss.",
       sharpe: "Excess return per unit of volatility (annualized).",
@@ -87,7 +88,8 @@ const COPY: Record<Lang, {
   },
   zh: {
     title: "回测台",
-    intro: "调整策略参数，在历史价格面板上重新回测。",
+    intro:
+      "调整某个策略族的连续参数（均线窗口、恢复带、自定义档位），在历史面板上重新回测。要探索完整的离散因素空间——VIX 触发、退出规则、趋势闸门——请用因素矩阵页。",
     familyLabel: "策略族",
     family: {
       drawdown_tilt: "回撤加仓",
@@ -107,8 +109,8 @@ const COPY: Record<Lang, {
     },
     cushionLabel: "退出缓冲（小数）",
     cushionTip: "恢复缓冲：当回撤回到距高点该比例以内时退出加仓。",
-    guardLabel: "200 周均线闸门",
-    guardTip: "仅当 QQQ 在其 200 周均线上方时才加仓。",
+    guardLabel: "200 日均线闸门",
+    guardTip: "仅当 QQQ 在其 200 日均线上方时才加仓。",
     allocLabel: "配置",
     allocLabels: { "QQQ 100%": "100% QQQ", "60/40": "60% QQQ / 40% IEF" },
     runIdle: "运行回测",
@@ -122,7 +124,7 @@ const COPY: Record<Lang, {
     },
     tips: {
       cagr: "复合年增长率（税前）。",
-      afterTax: "扣除日本特定口座清算税后的 CAGR。",
+      afterTax: "扣除日本特定口座税（已实现收益随发生课税 + 期末清算）后的 CAGR。",
       vol: "月度收益的年化标准差。",
       maxDrawdown: "最严重的峰谷净值损失。",
       sharpe: "每单位波动率的超额收益（年化）。",
@@ -157,7 +159,7 @@ export function BacktestLab() {
       name: `DD ${tierPreset}`,
       tiers: TIER_PRESETS[tierPreset],
       recover_within: recoverWithin,
-      guard_200w: guard,
+      trend_guard: guard,
     };
   }
 

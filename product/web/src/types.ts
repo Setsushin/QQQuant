@@ -58,7 +58,7 @@ export interface BootstrapPoint {
 }
 
 export interface BacktestRequest {
-  kind: "fixed" | "sma_switch" | "drawdown_tilt";
+  kind?: "fixed" | "sma_switch" | "drawdown_tilt";
   name?: string;
   monthly_amount?: number;
   weights?: Record<string, number>;
@@ -67,7 +67,28 @@ export interface BacktestRequest {
   sma_window?: number;
   tiers?: [number, string][];
   recover_within?: number;
-  guard_200w?: boolean;
+  trend_guard?: boolean;
+  factors?: FactorSpec;
+}
+
+// Factor matrix (serving.api /factors, backtest.factor_matrix). Scope is derived from trigger.
+export interface FactorSpec {
+  trigger: string;
+  ladder: string;
+  gate: string;
+  exit: string;
+}
+
+export interface FactorCell extends FactorSpec {
+  scope: string;
+  valid: boolean;
+  reason: string | null;
+  requires: string[];
+}
+
+export interface FactorsResponse {
+  axes: Record<string, string[]>;
+  cells: FactorCell[];
 }
 
 export interface EquityPoint {

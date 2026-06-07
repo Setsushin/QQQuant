@@ -23,14 +23,15 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from jp_quant.backtest.composable import FixedAllocation, drawdown_tilt, sma_switch
 from jp_quant.backtest.engine import (
     Strategy,
     month_end_trade_dates,
     monthly_contributions,
     run_backtest,
 )
+from jp_quant.backtest.factor_matrix import AXES, build_strategy, combo_of, matrix_cells
 from jp_quant.backtest.metrics import evaluate
-from jp_quant.backtest.strategies import DrawdownTilt, FixedAllocation, SmaSwitch
 from jp_quant.config import get_paths
 
 SERVING_TABLES = (
@@ -53,12 +54,24 @@ class CurrentSignal(BaseModel):
     qqq_above_200dma: bool
 
 
+class FactorSpec(BaseModel):
+    """A factor-matrix cell (the matrix UI's request shape, §4.5). Scope is derived from
+    ``trigger``; the other axes are picked independently."""
+
+    trigger: str = "none"
+    ladder: str = "tiered"
+    gate: str = "none"
+    exit: str = "none"
+
+
 class BacktestRequest(BaseModel):
     """A parameterized strategy to backtest on demand (the Python compute endpoint, §12.6)."""
 
-    kind: Literal["fixed", "sma_switch", "drawdown_tilt"]
+    kind: Literal["fixed", "sma_switch", "drawdown_tilt"] | None = None
     name: str = "custom"
     monthly_amount: float = 100_000.0
+    # factor-matrix cell (preferred): build a composed strategy from orthogonal factors
+    factors: FactorSpec | None = None
     # fixed
     weights: dict[str, float] | None = None
     # sma_switch
@@ -68,25 +81,34 @@ class BacktestRequest(BaseModel):
     # drawdown_tilt
     tiers: list[tuple[float, str]] | None = None
     recover_within: float = 0.05
-    guard_200w: bool = False
+    trend_guard: bool = False  # gate on QQQ's 200-day SMA
 
 
 def _build_strategy(req: BacktestRequest) -> Strategy:
+    if req.factors is not None:
+        f = req.factors
+        combo = combo_of(f.trigger, ladder=f.ladder, gate=f.gate, exit=f.exit)
+        try:
+            return build_strategy(combo, req.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if req.kind == "fixed":
         if not req.weights:
             raise HTTPException(status_code=422, detail="weights required for kind=fixed")
         return FixedAllocation(req.name, dict(req.weights))
+    if req.kind is None:
+        raise HTTPException(status_code=422, detail="kind or factors required")
     if req.kind == "sma_switch":
         if not req.leveraged:
             raise HTTPException(status_code=422, detail="leveraged required for kind=sma_switch")
-        return SmaSwitch(
+        return sma_switch(
             req.name, leveraged=req.leveraged, cash=req.cash, sma_window=req.sma_window
         )
     tiers = tuple(
         (float(lvl), str(sym)) for lvl, sym in (req.tiers or [(0.15, "QLD"), (0.25, "TQQQ")])
     )
-    return DrawdownTilt(
-        req.name, tiers=tiers, recover_within=req.recover_within, guard_200w=req.guard_200w
+    return drawdown_tilt(
+        req.name, tiers=tiers, recover_within=req.recover_within, trend_guard=req.trend_guard
     )
 
 
@@ -140,6 +162,12 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/factors")
+    def factors() -> dict[str, Any]:
+        """The factor matrix: axis options + per-cell validity (the matrix UI greys out
+        invalid cells and disables options whose required series are absent, §4.5)."""
+        return {"axes": {k: list(v) for k, v in AXES.items()}, "cells": matrix_cells()}
 
     @app.post("/backtest")
     def backtest(req: BacktestRequest) -> dict[str, Any]:

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from jp_quant.backtest.strategies import ALL_STRATEGIES
 from jp_quant.serving.api import create_app
 from jp_quant.serving.publish import publish
 
@@ -47,7 +48,7 @@ def test_signals_typed_and_json_safe(client: TestClient) -> None:
     resp = client.get("/signals")
     assert resp.status_code == 200
     rows = resp.json()
-    assert len(rows) == 9
+    assert len(rows) == len(ALL_STRATEGIES)
     sig = next(r for r in rows if r["strategy"] == "B0 QQQ-DCA")
     assert sig["target_symbol"] == "QQQ"
     assert isinstance(sig["qqq_above_200dma"], bool)  # native bool, not numpy
@@ -55,7 +56,7 @@ def test_signals_typed_and_json_safe(client: TestClient) -> None:
 
 
 def test_metrics_and_bootstrap_filter(client: TestClient) -> None:
-    assert len(client.get("/metrics").json()) == 9
+    assert len(client.get("/metrics").json()) == len(ALL_STRATEGIES)
     all_boot = client.get("/bootstrap").json()
     one = client.get("/bootstrap", params={"strategy": "B0 QQQ-DCA"}).json()
     assert 0 < len(one) < len(all_boot)
@@ -103,4 +104,28 @@ def test_backtest_runs_parameterized_strategy(compute_client: TestClient) -> Non
 def test_backtest_validates_required_params(compute_client: TestClient) -> None:
     # sma_switch without `leveraged` is a 422 (our explicit guard)
     resp = compute_client.post("/backtest", json={"kind": "sma_switch"})
+    assert resp.status_code == 422
+
+
+def test_factors_exposes_axes_and_validity(client: TestClient) -> None:
+    body = client.get("/factors").json()
+    assert "200w" not in body["axes"]["gate"]  # 200-week option dropped
+    cells = body["cells"]
+    assert any(c["valid"] for c in cells) and any(not c["valid"] for c in cells)
+    vix = next(c for c in cells if c["trigger"] == "vix" and c["exit"] == "vixcalm")
+    assert vix["requires"] == ["VIX"]
+
+
+def test_backtest_builds_from_factor_cell(compute_client: TestClient) -> None:
+    factors = {"trigger": "drawdown", "ladder": "tiered", "exit": "recovery"}
+    resp = compute_client.post("/backtest", json={"name": "m", "factors": factors})
+    assert resp.status_code == 200
+    assert resp.json()["metrics"]["name"] == "m"
+
+
+def test_backtest_rejects_invalid_factor_cell(compute_client: TestClient) -> None:
+    # fixed allocation (trigger=none) with an exit rule is meaningless → 422
+    resp = compute_client.post(
+        "/backtest", json={"factors": {"trigger": "none", "exit": "recovery"}}
+    )
     assert resp.status_code == 422
