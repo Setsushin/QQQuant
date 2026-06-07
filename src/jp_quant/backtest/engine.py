@@ -4,6 +4,11 @@ Prices are **adjusted (total-return) closes**, so dividend reinvestment is alrea
 baked in (F6). Trades execute at each contribution date's close. Position cost basis
 uses the weighted-average method (総平均法に準ずる方法, §6.2) — the realized-gain hook
 the Japan tax engine (M4) will consume.
+
+Every trade pays a proportional commission (§F5) of ``DEFAULT_COMMISSION_RATE`` on its
+notional — charged on contribution buys and on *both* legs of a conversion. It is the
+engine default, so every comparison call site (report, equity curves, bootstrap) prices
+the same friction; pass ``commission_rate=0.0`` to recover the frictionless mechanics.
 """
 
 from __future__ import annotations
@@ -13,11 +18,17 @@ from typing import Protocol
 
 import pandas as pd
 
+DEFAULT_COMMISSION_RATE = 0.001
+"""Per-trade commission as a fraction of notional (0.1%) — the comparison default (§F5)."""
+
+_FLAT = 1e-12  # share count at or below which a position counts as closed (for opened tracking)
+
 
 @dataclass
 class Position:
     shares: float = 0.0
     cost_basis: float = 0.0  # total acquisition cost in base currency
+    opened: pd.Timestamp | None = None  # date the position was last (re)opened from flat
 
     @property
     def avg_cost(self) -> float:
@@ -28,19 +39,24 @@ class Position:
 class Portfolio:
     positions: dict[str, Position] = field(default_factory=dict)
 
-    def buy(self, symbol: str, amount: float, price: float) -> float:
-        """Buy ``amount`` of base currency worth at ``price``; returns shares acquired."""
-        shares = amount / price
+    def buy(self, symbol: str, amount: float, price: float, commission: float = 0.0) -> float:
+        """Buy ``amount`` of base currency worth at ``price``; returns shares acquired.
+
+        ``commission`` (買付手数料) buys no shares but is part of the acquisition cost
+        (取得費, §6.2), so the full ``amount`` is capitalised into the cost basis."""
+        shares = (amount - commission) / price
         pos = self.positions.setdefault(symbol, Position())
         pos.shares += shares
         pos.cost_basis += amount
         return shares
 
-    def sell(self, symbol: str, shares: float, price: float) -> float:
-        """Sell ``shares`` at ``price``; returns realized gain (weighted-average basis)."""
+    def sell(self, symbol: str, shares: float, price: float, commission: float = 0.0) -> float:
+        """Sell ``shares`` at ``price``; returns realized gain (weighted-average basis).
+
+        ``commission`` (譲渡費用) is deductible from the gain (§6)."""
         pos = self.positions[symbol]
         avg = pos.avg_cost
-        realized = shares * (price - avg)
+        realized = shares * (price - avg) - commission
         pos.shares -= shares
         pos.cost_basis -= shares * avg
         return realized
@@ -106,12 +122,16 @@ def lump_sum_contribution(date: pd.Timestamp, amount: float) -> pd.Series:
 
 
 def run_backtest(
-    prices: pd.DataFrame, contributions: pd.Series, strategy: Strategy
+    prices: pd.DataFrame,
+    contributions: pd.Series,
+    strategy: Strategy,
+    commission_rate: float = DEFAULT_COMMISSION_RATE,
 ) -> BacktestResult:
     """Run ``strategy`` over ``prices`` (daily adjusted closes) given a contribution schedule.
 
-    Deterministic (F8). Returns a daily mark-to-market equity curve, trade log, and
-    final positions.
+    ``commission_rate`` is charged on every trade's notional (§F5); pass ``0.0`` for the
+    frictionless mechanics. Deterministic (F8). Returns a daily mark-to-market equity
+    curve, trade log, and final positions.
     """
     prices = prices.sort_index()
     portfolio = Portfolio()
@@ -125,22 +145,36 @@ def run_backtest(
         row = prices.loc[:ts].iloc[-1]
         ctx = AllocationContext(date=ts, history=prices.loc[:ts], portfolio=portfolio)
 
-        # 1) rebalance existing holdings — conversions realize gains (taxed at sale, §6)
+        # 1) rebalance existing holdings — conversions realize gains (taxed at sale, §6).
+        #    Both legs pay commission: sell the source, then buy the target with net proceeds.
         for action in strategy.rebalance(ctx):
             pos = portfolio.positions.get(action.from_symbol)
             if pos is None or pos.shares <= 0:
                 continue
             shares = pos.shares * action.fraction
             price_from, price_to = float(row[action.from_symbol]), float(row[action.to_symbol])
-            realized_records.append((ts, portfolio.sell(action.from_symbol, shares, price_from)))
-            portfolio.buy(action.to_symbol, shares * price_from, price_to)
+            gross = shares * price_from
+            sell_fee = gross * commission_rate
+            realized_records.append(
+                (ts, portfolio.sell(action.from_symbol, shares, price_from, commission=sell_fee))
+            )
+            if pos.shares <= _FLAT:  # source fully exited → its holding clock resets
+                pos.opened = None
+            to_pos = portfolio.positions.get(action.to_symbol)
+            to_was_flat = to_pos is None or to_pos.shares <= _FLAT
+            proceeds = gross - sell_fee
+            buy_fee = proceeds * commission_rate
+            bought = portfolio.buy(action.to_symbol, proceeds, price_to, commission=buy_fee)
+            if to_was_flat:
+                portfolio.positions[action.to_symbol].opened = ts
             trade_log.append(
                 {
                     "date": ts,
                     "symbol": action.from_symbol,
                     "shares": -shares,
                     "price": price_from,
-                    "amount": -shares * price_from,
+                    "amount": -gross,
+                    "commission": sell_fee,
                     "kind": "convert",
                 }
             )
@@ -148,9 +182,10 @@ def run_backtest(
                 {
                     "date": ts,
                     "symbol": action.to_symbol,
-                    "shares": shares * price_from / price_to,
+                    "shares": bought,
                     "price": price_to,
-                    "amount": shares * price_from,
+                    "amount": proceeds,
+                    "commission": buy_fee,
                     "kind": "convert",
                 }
             )
@@ -161,7 +196,12 @@ def run_backtest(
             if amount <= 0:
                 continue
             price = float(row[symbol])
-            shares = portfolio.buy(symbol, amount, price)
+            fee = amount * commission_rate
+            existing = portfolio.positions.get(symbol)
+            was_flat = existing is None or existing.shares <= _FLAT
+            shares = portfolio.buy(symbol, amount, price, commission=fee)
+            if was_flat:
+                portfolio.positions[symbol].opened = ts
             trade_log.append(
                 {
                     "date": ts,
@@ -169,6 +209,7 @@ def run_backtest(
                     "shares": shares,
                     "price": price,
                     "amount": amount,
+                    "commission": fee,
                     "kind": "contribution",
                 }
             )

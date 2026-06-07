@@ -2,16 +2,25 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from jp_quant.backtest.engine import month_end_trade_dates, monthly_contributions
+from jp_quant.backtest.engine import (
+    BacktestResult,
+    Position,
+    month_end_trade_dates,
+    monthly_contributions,
+)
 from jp_quant.backtest.metrics import (
+    after_tax_equity,
     cagr,
+    investment_returns,
     longest_underwater_months,
     max_drawdown,
     max_drawdown_duration_months,
+    wealth_index,
     worst_rolling_return,
 )
 from jp_quant.backtest.report import build_report
-from jp_quant.backtest.strategies import D3_TIERED
+from jp_quant.backtest.strategies import ALL_STRATEGIES, D3_TIERED
+from jp_quant.tax import Account
 
 IDX = pd.bdate_range("2020-01-01", periods=10)  # Jan 1,2,3,6,7,8,9,10,13,14
 WEALTH = pd.Series([1.0, 1.1, 1.2, 1.0, 0.9, 1.0, 1.25, 1.3, 1.2, 1.35], index=IDX)
@@ -46,6 +55,9 @@ def _panel() -> pd.DataFrame:
     def lev(mult: float) -> np.ndarray:
         return 100.0 * np.cumprod(1.0 + (mult * qqq_ret).to_numpy())
 
+    vix = np.full(n, 15.0)
+    vix[730:780] = 40.0  # fear spike over the drawdown cluster → clears both VIX tiers
+
     return pd.DataFrame(
         {
             "QQQ": 100.0 * np.cumprod(1.0 + ret),
@@ -53,6 +65,7 @@ def _panel() -> pd.DataFrame:
             "TQQQ": lev(3.0),
             "SGOV": 100.0 * np.cumprod(1.0 + np.full(n, 2e-5)),
             "IEF": 100.0 * np.cumprod(1.0 + np.full(n, 1e-4)),
+            "VIX": vix,
         },
         index=idx,
     )
@@ -63,7 +76,7 @@ def test_build_report_covers_all_strategies_with_sane_metrics() -> None:
     contribs = monthly_contributions(month_end_trade_dates(panel), 100_000.0)
     report = build_report(panel, contribs)
 
-    assert len(report) == 9  # B0,B2,B3,T1,T2,D1-D4
+    assert len(report) == len(ALL_STRATEGIES)  # one row per catalog strategy
     assert report["cagr"].notna().all()
     assert (report["max_drawdown"] <= 0).all()
     assert (report["ann_vol"] >= 0).all()
@@ -77,6 +90,27 @@ def test_build_report_covers_all_strategies_with_sane_metrics() -> None:
 
     # B3 60/40: every contribution buys IEF, so every month deviates from base QQQ.
     assert report.loc["B3 60/40-DCA"]["pct_months_deviation"] == pytest.approx(1.0)
+
+
+def test_after_tax_equity_charges_interim_gains_and_spares_nisa() -> None:
+    idx = pd.bdate_range("2020-01-01", periods=4)
+    equity = pd.Series([100.0, 110.0, 121.0, 133.0], index=idx)
+    realized = pd.Series([50.0], index=pd.DatetimeIndex([idx[1]]))  # a mid-run taxable switch
+    result = BacktestResult(
+        equity_curve=equity,
+        trades=pd.DataFrame(),
+        final_positions={"QQQ": Position(shares=1.0, cost_basis=100.0)},
+        total_contributed=100.0,
+        realized_gains=realized,
+    )
+    wealth = wealth_index(investment_returns(equity, pd.Series(dtype=float)), idx[0])
+
+    at = after_tax_equity(result, wealth, Account.SPECIFIED)
+    assert at.iloc[0] == pytest.approx(equity.iloc[0])  # no tax before the switch
+    assert at.iloc[1] < equity.iloc[1]  # interim tax withheld, dragging the curve down
+    assert at.iloc[-1] < equity.iloc[-1]  # plus terminal liquidation tax
+    # NISA never taxes → the after-tax curve is the pre-tax curve untouched.
+    assert after_tax_equity(result, wealth, Account.NISA_GROWTH).equals(equity)
 
 
 def test_drawdown_tilt_generates_taxable_conversions() -> None:

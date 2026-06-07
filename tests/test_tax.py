@@ -5,17 +5,58 @@ from jp_quant.backtest.engine import monthly_contributions, run_backtest
 from jp_quant.backtest.strategies import B0_QQQ_DCA
 from jp_quant.tax import (
     Account,
+    TaxLedger,
     after_tax_on_liquidation,
     fx_attribution,
     money_weighted_return,
     withholding_tax,
 )
 
+RATE = 0.20315
+
 
 def test_withholding_specified_vs_nisa() -> None:
     assert withholding_tax(1000.0, Account.SPECIFIED) == pytest.approx(203.15)
     assert withholding_tax(-500.0, Account.SPECIFIED) == 0.0  # loss → no tax
     assert withholding_tax(1000.0, Account.NISA_GROWTH) == 0.0
+
+
+def test_ledger_withholds_then_refunds_within_year() -> None:
+    led = TaxLedger(Account.SPECIFIED)
+    assert led.realize(2020, 1000.0) == pytest.approx(RATE * 1000.0)  # withhold on the gain
+    # a later same-year loss nets against the gain → refunds tax on the offset portion
+    assert led.realize(2020, -400.0) == pytest.approx(-RATE * 400.0)
+    # a further loss past break-even refunds only down to zero withheld, no more
+    assert led.realize(2020, -1000.0) == pytest.approx(-RATE * 600.0)
+    assert led.close() == 0.0  # year nets -400 → banked as carry-forward, no cash
+    assert led.carryforward_balance == pytest.approx(400.0)
+
+
+def test_ledger_carryforward_offsets_next_year_gain() -> None:
+    led = TaxLedger(Account.SPECIFIED)
+    led.realize(2020, -1000.0)  # net loss year → no tax
+    assert led.close() == 0.0
+    led2 = TaxLedger(Account.SPECIFIED)
+    # gain in 2021 first withholds, then year-end carry from 2020 refunds the offset tax
+    assert led2.realize(2020, -1000.0) == 0.0
+    assert led2.realize(2021, 700.0) == pytest.approx(RATE * 700.0)  # withheld intra-year
+    # crossing into 2022 settles 2021: 700 gain offset by 700 of the 1000 carry → full refund
+    assert led2.realize(2022, 0.0) == pytest.approx(-RATE * 700.0)
+    assert led2.carryforward_balance == pytest.approx(300.0)  # 300 of the loss still banked
+
+
+def test_ledger_carryforward_expires_after_three_years() -> None:
+    led = TaxLedger(Account.SPECIFIED)
+    led.realize(2020, -1000.0)  # loss banked at year-end 2020
+    led.realize(2024, 1000.0)  # gain four years later — carry expired (usable 2021-2023 only)
+    assert led.close() == 0.0  # no refund: the 2020 loss can no longer offset 2024
+    assert led.carryforward_balance == 0.0
+
+
+def test_ledger_no_tax_for_nisa() -> None:
+    led = TaxLedger(Account.NISA_GROWTH)
+    assert led.realize(2020, 5000.0) == 0.0
+    assert led.close() == 0.0
 
 
 def test_after_tax_on_liquidation() -> None:
@@ -46,7 +87,8 @@ def test_b0_after_tax_matches_manual() -> None:
     idx = pd.to_datetime(["2020-01-31", "2021-01-31", "2022-01-31"])
     prices_jpy = pd.DataFrame({"QQQ": [1000.0, 1000.0, 1500.0]}, index=idx)
     res = run_backtest(
-        prices_jpy, monthly_contributions(pd.DatetimeIndex(idx[:2]), 1000.0), B0_QQQ_DCA
+        prices_jpy, monthly_contributions(pd.DatetimeIndex(idx[:2]), 1000.0), B0_QQQ_DCA,
+        commission_rate=0.0,
     )
 
     terminal_value = sum(p.shares * 1500.0 for p in res.final_positions.values())
